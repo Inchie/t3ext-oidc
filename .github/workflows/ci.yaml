@@ -29,6 +29,8 @@ jobs:
     strategy:
       matrix:
         php-version:
+          - 8.2
+          - 8.3
           - 8.4
           - 8.5
     steps:
@@ -102,10 +104,18 @@ jobs:
     strategy:
       matrix:
         include:
+          - php-version: '8.2'
+            typo3-version: '^13'
+          - php-version: '8.3'
+            typo3-version: '^13'
           - php-version: '8.4'
             typo3-version: '^13'
           - php-version: '8.5'
             typo3-version: '^13'
+          - php-version: '8.2'
+            typo3-version: '^14'
+          - php-version: '8.3'
+            typo3-version: '^14'
           - php-version: '8.4'
             typo3-version: '^14'
           - php-version: '8.5'

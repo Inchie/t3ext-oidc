@@ -13,7 +13,7 @@ use TYPO3\CMS\Fluid\View\FluidViewAdapter;
 
 class OidcLoginProvider implements LoginProviderInterface
 {
-    public const int IDENTIFIER = 1742888452490;
+    public const IDENTIFIER = 1742888452490;
 
     /**
      * This method is only here, because the Interface in v13

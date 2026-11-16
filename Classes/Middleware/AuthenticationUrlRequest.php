@@ -35,12 +35,12 @@ class AuthenticationUrlRequest implements MiddlewareInterface, LoggerAwareInterf
                 return $this->openIdConnectService->getAuthorizationRedirect($authContext);
             } catch (Throwable $e) {
                 if ($e->getCode() === 1759845557572 || $e->getCode() === 1719003567) {
-                    return new Response()->withStatus(400);
+                    return (new Response())->withStatus(400);
                 }
                 $this->logger->alert('OIDC authentication provider error', ['exception' => $e]);
                 // config error or
                 // whatever the provider did wrong (can be connection errors)
-                return new Response()->withStatus(500)->withHeader('x-reason', 'Authentication provider error');
+                return (new Response())->withStatus(500)->withHeader('x-reason', 'Authentication provider error');
             }
         }
         return $handler->handle($request);

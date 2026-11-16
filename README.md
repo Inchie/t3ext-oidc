@@ -250,6 +250,11 @@ cd Build
 docker compose up --build --exit-code-from playwright && echo "Success" || echo "Fail"
 ```
 
+The PHP version of the TYPO3 containers defaults to 8.5 and can be changed with the `PHP_VERSION` environment variable:
+```bash
+PHP_VERSION=8.2 docker compose up --build --exit-code-from playwright && echo "Success" || echo "Fail"
+```
+
 ## Reference
 
 ### Implementation concept

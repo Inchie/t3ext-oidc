@@ -2,6 +2,7 @@
 
 ## Version 7.0.0
 
+- PHP 8.2 and 8.3 are supported again (PHP 8.2 - 8.5)
 - Breaking: Extension Configuration is now in `/config/system/oidc.yml`. Example is in README.
 - Breaking: OIDC claim to TYPO3 user mapping is now configured in `oidc.yaml` as well. The former TypoScript configuration has been dropped.
 - The context-cookie is now removed, once the login was handled

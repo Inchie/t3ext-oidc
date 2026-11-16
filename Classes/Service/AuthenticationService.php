@@ -60,12 +60,12 @@ class AuthenticationService extends \TYPO3\CMS\Core\Authentication\Authenticatio
     /**
      * 200 - authenticated and no more checking needed
      */
-    private const int STATUS_AUTHENTICATION_SUCCESS_BREAK = 200;
+    private const STATUS_AUTHENTICATION_SUCCESS_BREAK = 200;
 
     /**
      * 100 - just go on. User is not authenticated but there's still no reason to stop
      */
-    private const int STATUS_AUTHENTICATION_FAILURE_CONTINUE = 100;
+    private const STATUS_AUTHENTICATION_FAILURE_CONTINUE = 100;
 
     public function __construct(
         protected readonly EventDispatcherInterface $eventDispatcher,

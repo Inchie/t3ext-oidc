@@ -3,6 +3,8 @@ services:
   v13:
     build:
       context: typo3
+      args:
+        PHP_VERSION: ${PHP_VERSION:-8.5}
       additional_contexts:
         - certs=./certs
         - oidc=..
@@ -48,6 +50,8 @@ services:
   v14:
     build:
       context: typo3
+      args:
+        PHP_VERSION: ${PHP_VERSION:-8.5}
       additional_contexts:
         - certs=./certs
         - oidc=..

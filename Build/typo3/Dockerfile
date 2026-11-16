@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1.7-labs
-FROM docker.io/php:8.5-apache AS webserver
+ARG PHP_VERSION=8.5
+FROM docker.io/php:${PHP_VERSION}-apache AS webserver
 
 # Install common tools
 # gettext-base provides envsubst, used for fixture import to db
