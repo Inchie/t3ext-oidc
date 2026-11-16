@@ -15,7 +15,8 @@
 	"require": {
 		"causal/oidc": "@dev",
 		"helhum/typo3-console": "9.0.x-dev",
-		"somebdyelse/oidc-sitepackage": "@dev"
+		"somebdyelse/oidc-sitepackage": "@dev",
+		"typo3/cms-core": "^14.3"
 	},
 	"repositories": [
 		{

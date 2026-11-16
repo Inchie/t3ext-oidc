@@ -1,6 +1,32 @@
 TRUNCATE pages;
 TRUNCATE tt_content;
 TRUNCATE sys_template;
+TRUNCATE fe_groups;
+TRUNCATE be_groups;
+
+# Users created by EXT:oidc must be member of at least one group,
+# see "usersDefaultGroup" in config/system/oidc.yaml
+INSERT INTO fe_groups SET
+    uid = 1,
+    pid = 2,
+    title = "OIDC users"
+;
+
+INSERT INTO be_groups SET
+    uid = 1,
+    pid = 0,
+    title = "OIDC users"
+;
+
+# Backend users must be located on pid 0, whereas EXT:oidc creates new users in the first
+# configured storage pid. Hence the backend user for "User1" (sub = 1) of the mock IdP is provided upfront.
+INSERT INTO be_users SET
+    uid = 100,
+    pid = 0,
+    username = "oidc-user1",
+    usergroup = "1",
+    tx_oidc = "1"
+;
 
 INSERT INTO pages SET
     uid = 1,

@@ -56,17 +56,16 @@
 
     $GLOBALS['TYPO3_CONF_VARS']['BE']['passwordPolicy'] = '';
 
-    $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['oidc'] = array_replace_recursive($GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['oidc'] ?? [], [
-        'enableFrontendAuthentication' => getenv('TYPO3_OIDC_ENABLE_FRONTEND_AUTHENTICATION'),
-        'oidcClientKey' => getenv('TYPO3_OIDC_OIDC_CLIENT_KEY'),
-        'oidcClientScopes' => getenv('TYPO3_OIDC_OIDC_CLIENT_SCOPES'),
-        'oidcClientSecret' => getenv('TYPO3_OIDC_OIDC_CLIENT_SECRET'),
-        'oidcEndpointAuthorize' => getenv('TYPO3_OIDC_OIDC_ENDPOINT_AUTHORIZE'),
-        'oidcEndpointLogout' => getenv('TYPO3_OIDC_OIDC_ENDPOINT_LOGOUT'),
-        'oidcEndpointRevoke' => getenv('TYPO3_OIDC_OIDC_ENDPOINTREVOKE'),
-        'oidcEndpointToken' => getenv('TYPO3_OIDC_OIDC_ENDPOINT_TOKEN'),
-        'oidcEndpointUserInfo' => getenv('TYPO3_OIDC_OIDC_ENDPOINT_USERINFO'),
-        'oidcRedirectUri' => getenv('TYPO3_OIDC_OIDC_REDIRECT_URI'),
-        'enableCodeVerifier' => getenv('TYPO3_OIDC_ENABLE_CODE_VERIFIER'),
-    ]);
+    // The backend login via OIDC returns from the IdP (another site) with a chain of redirects.
+    // Browsers do not send the backend session cookie within that chain, if it is set to "strict" (TYPO3 default).
+    $GLOBALS['TYPO3_CONF_VARS']['BE']['cookieSameSite'] = 'lax';
+
+    // Write the debug log of EXT:oidc to var/log/typo3_oidc_*.log to ease the analysis of failing acceptance tests
+    $GLOBALS['TYPO3_CONF_VARS']['LOG']['Causal']['Oidc']['writerConfiguration'] = [
+        \Psr\Log\LogLevel::DEBUG => [
+            \TYPO3\CMS\Core\Log\Writer\FileWriter::class => [
+                'logFileInfix' => 'oidc',
+            ],
+        ],
+    ];
 })();
