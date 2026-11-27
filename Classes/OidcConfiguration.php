@@ -28,6 +28,7 @@ final class OidcConfiguration
     public string $authenticationUrlRoute = 'oidc/authentication';
 
     public string $authorizeLanguageParameter;
+    public string $backChannelLogoutPath = '/oidc/backchannel-logout';
     public string $clientKey;
     public string $clientScopeSeparator;
     public string $clientScopes;
@@ -38,11 +39,13 @@ final class OidcConfiguration
     public bool $enableFrontendAuthentication = false;
     public bool $enablePasswordCredentials;
     public string $endpointAuthorize;
+    public string $endpointJwks = '';
     public string $endpointLogout;
     public string $endpointRevoke;
     public string $endpointToken;
     public string $endpointUserInfo;
     public bool $frontendUserMustExistLocally;
+    public string $issuer = '';
     public string $oauthProviderFactory;
     public bool $reEnableFrontendUsers;
     public string $redirectUri;
@@ -124,6 +127,9 @@ final class OidcConfiguration
             $this->redirectUri = $provider->getRedirectUri();
             $this->revokeAccessTokenAfterLogin = $provider->isRevokeAccessTokenAfterLogin();
             $this->enablePasswordCredentials = $provider->isEnablePasswordCredentials();
+            $this->issuer = $provider->getIssuer();
+            $this->endpointJwks = $provider->getEndpointJwks();
+            $this->backChannelLogoutPath = $provider->getBackChannelLogoutPath();
         } catch (\Exception $e) {
             throw new ExtensionNotConfiguredException(
                 'OIDC extension configuration is incomplete. Please, fix it: ' . $e->getMessage(),
@@ -142,6 +148,14 @@ final class OidcConfiguration
             return $request->getAttribute('normalizedParams')->getSiteUrl();
         }
         throw new UnexpectedValueException('OIDC redirectUri (callback) can\'t be determined. Missing request and no redirectUri configuration set.', 1787738362);
+    }
+
+    /**
+     * Back-Channel Logout is configured exactly when the provider carries an issuer and a JWKS URL.
+     */
+    public function isBackChannelLogoutConfigured(): bool
+    {
+        return $this->issuer !== '' && $this->endpointJwks !== '';
     }
 
     public function hasProviderForBackendAuthentication(): bool

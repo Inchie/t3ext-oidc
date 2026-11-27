@@ -69,7 +69,7 @@ jobs:
         run: composer install --prefer-dist --no-progress
 
       - name: PHPUnit configuration file
-        run: xmllint --schema ./.Build/vendor/phpunit/phpunit/phpunit.xsd --noout Tests/UnitTests-v10.xml
+        run: xmllint --schema ./.Build/vendor/phpunit/phpunit/phpunit.xsd --noout Tests/UnitTests-v10.xml Tests/FunctionalTests.xml
 
 #      - name: Fetch schema for xliff
 #        run: wget https://docs.oasis-open.org/xliff/v1.2/os/xliff-core-1.2-strict.xsd --output-document=.Build/xliff-core-1.2-strict.xsd
@@ -137,3 +137,6 @@ jobs:
 
       - name: PHPUnit Tests
         run: ./.Build/vendor/bin/phpunit --configuration Tests/UnitTests-v10.xml --testdox
+
+      - name: PHPUnit Functional Tests (SQLite)
+        run: ./.Build/vendor/bin/phpunit --configuration Tests/FunctionalTests.xml --testdox

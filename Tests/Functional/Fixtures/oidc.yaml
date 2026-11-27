@@ -1,0 +1,10 @@
+providers:
+  test:
+    enableFrontendAuthentication: 1
+    clientKey: 't3ext-oidc'
+    clientSecret: 't3ext-oidc-secret'
+    endpointAuthorize: 'https://idp.example/authorize'
+    endpointToken: 'https://idp.example/token'
+    mapping:
+      fe_users:
+        name: '<name>'

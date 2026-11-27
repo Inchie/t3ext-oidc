@@ -21,3 +21,11 @@ CREATE TABLE be_groups
 (
 	tx_oidc_pattern varchar(255) DEFAULT '' NOT NULL
 );
+
+CREATE TABLE tx_oidc_backchannel_session
+(
+	sid varchar(255) DEFAULT '' NOT NULL,
+	session_identifier varchar(255) DEFAULT '' NOT NULL,
+
+	PRIMARY KEY (sid, session_identifier)
+);

@@ -17,6 +17,10 @@ declare(strict_types=1);
 
 namespace Causal\Oidc\Service;
 
+use Causal\Oidc\BackChannelLogout\EndpointTransportRule;
+use Causal\Oidc\BackChannelLogout\IdTokenClaims;
+use Causal\Oidc\BackChannelLogout\IdTokenValidator;
+use Causal\Oidc\BackChannelLogout\SessionAssociationRepository;
 use Causal\Oidc\Event\AuthenticationFetchUserEvent;
 use Causal\Oidc\Event\AuthenticationGetUserEvent;
 use Causal\Oidc\Event\AuthenticationGetUserGroupsEvent;
@@ -24,6 +28,8 @@ use Causal\Oidc\Event\AuthenticationPreUserEvent;
 use Causal\Oidc\Event\AuthenticationProcessMappingEvent;
 use Causal\Oidc\Event\ModifyResourceOwnerEvent;
 use Causal\Oidc\Event\ModifyUserEvent;
+use Causal\Oidc\Exception\LoginDeniedException;
+use Causal\Oidc\Exception\SessionAssociationNotStoredException;
 use Causal\Oidc\LoginProvider\OidcLoginProvider;
 use Causal\Oidc\OidcConfiguration;
 use Doctrine\DBAL\ArrayParameterType;
@@ -66,6 +72,16 @@ class AuthenticationService extends \TYPO3\CMS\Core\Authentication\Authenticatio
      * 100 - just go on. User is not authenticated but there's still no reason to stop
      */
     private const STATUS_AUTHENTICATION_FAILURE_CONTINUE = 100;
+
+    /**
+     * 0 - this service was the right one to authenticate the user, but it failed
+     */
+    private const STATUS_AUTHENTICATION_FAILURE_BREAK = 0;
+
+    /**
+     * Key of the user candidate carrying the validated identity-provider session identifier
+     */
+    private const USER_KEY_SID = 'backChannelLogoutSid';
 
     public function __construct(
         protected readonly EventDispatcherInterface $eventDispatcher,
@@ -240,6 +256,16 @@ class AuthenticationService extends \TYPO3\CMS\Core\Authentication\Authenticatio
      */
     protected function getUserFromAccessToken(AccessTokenInterface $accessToken): array|false
     {
+        $idTokenClaims = null;
+        if ($this->isSessionAssociationRequired()) {
+            try {
+                $idTokenClaims = $this->validateIdToken($accessToken);
+            } catch (LoginDeniedException $e) {
+                $this->logger->warning('Login denied: ' . $e->getMessage());
+                return false;
+            }
+        }
+
         $this->logger->debug('Retrieving resource owner');
         try {
             $resourceOwnerObject = $this->oauthService->getResourceOwner($accessToken);
@@ -270,7 +296,19 @@ class AuthenticationService extends \TYPO3\CMS\Core\Authentication\Authenticatio
             );
         }
 
+        if (
+            $idTokenClaims !== null
+            && $this->config->endpointUserInfo !== ''
+            && $resourceOwnerObject->getId() !== $idTokenClaims->sub
+        ) {
+            $this->logger->warning('Login denied: the UserInfo sub differs from the ID token sub');
+            return false;
+        }
+
         $user = $this->convertResourceOwner($resourceOwnerObject, $accessToken);
+        if (is_array($user) && $idTokenClaims !== null) {
+            $user[self::USER_KEY_SID] = $idTokenClaims->sid;
+        }
 
         if ($this->config->revokeAccessTokenAfterLogin) {
             try {
@@ -304,7 +342,66 @@ class AuthenticationService extends \TYPO3\CMS\Core\Authentication\Authenticatio
             return self::STATUS_AUTHENTICATION_FAILURE_CONTINUE;
         }
 
+        if ($this->isSessionAssociationRequired() && !$this->storeSessionAssociation($user)) {
+            return self::STATUS_AUTHENTICATION_FAILURE_BREAK;
+        }
+
         return self::STATUS_AUTHENTICATION_SUCCESS_BREAK;
+    }
+
+    /**
+     * With Back-Channel Logout configured, a frontend login must leave a session association behind.
+     */
+    private function isSessionAssociationRequired(): bool
+    {
+        return ($this->authInfo['loginType'] ?? '') === 'FE' && $this->config->isBackChannelLogoutConfigured();
+    }
+
+    /**
+     * @throws LoginDeniedException
+     */
+    private function validateIdToken(AccessTokenInterface $accessToken): IdTokenClaims
+    {
+        $transportRule = GeneralUtility::makeInstance(EndpointTransportRule::class);
+        if (!$transportRule->holdsFor($this->config->endpointToken) || !$transportRule->holdsFor($this->config->endpointJwks)) {
+            throw new LoginDeniedException(
+                'The token endpoint and the JWKS URL must use HTTPS with certificate validation. (6d900128-bc35-4913-83b9-ce4da4b1e057)'
+            );
+        }
+
+        $idToken = $accessToken->getValues()['id_token'] ?? null;
+
+        return GeneralUtility::makeInstance(IdTokenValidator::class)->validate(
+            is_string($idToken) ? $idToken : null,
+            $this->config->issuer,
+            $this->config->clientKey
+        );
+    }
+
+    /**
+     * Associates the identity-provider session with the session the Core is about to fixate for this login.
+     */
+    private function storeSessionAssociation(array $user): bool
+    {
+        $sid = $user[self::USER_KEY_SID] ?? null;
+        if (!is_string($sid)) {
+            $this->logger->error('Login denied: the user candidate carries no validated sid');
+            return false;
+        }
+        $session = $this->pObj->getSession();
+        $associations = GeneralUtility::makeInstance(SessionAssociationRepository::class);
+        try {
+            if ($session->getUserId() === null) {
+                $associations->store($sid, $session->getIdentifier());
+            } else {
+                // The Core authenticates again in a session that already has a user and keeps its identifier.
+                $associations->storeAsOnlyAssociationOfSession($sid, $session->getIdentifier());
+            }
+        } catch (SessionAssociationNotStoredException $e) {
+            $this->logger->error('Login denied: ' . $e->getMessage());
+            return false;
+        }
+        return true;
     }
 
     /**

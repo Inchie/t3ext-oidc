@@ -13,6 +13,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * @phpstan-type MappingConfig array{be_users?: array<string, int|string>, fe_users?: array<string, int|string>}
  * @phpstan-type ProviderConfig array{
  *     authorizeLanguageParameter: string,
+ *     backChannelLogoutPath?: string,
  *     clientKey: string,
  *     clientScopeSeparator: string,
  *     clientScopes: string,
@@ -23,11 +24,13 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  *     enableFrontendAuthentication: int,
  *     enablePasswordCredentials: int,
  *     endpointAuthorize: string,
+ *     endpointJwks?: string,
  *     endpointLogout: string,
  *     endpointRevoke: string,
  *     endpointToken: string,
  *     endpointUserInfo: string,
  *     frontendUserMustExistLocally: int,
+ *     issuer?: string,
  *     mapping: MappingConfig,
  *     name: string,
  *     oauthProviderFactory: class-string<OAuthProviderFactoryInterface>,
@@ -43,6 +46,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 class Provider
 {
     private string $authorizeLanguageParameter = 'language';
+    private string $backChannelLogoutPath = '/oidc/backchannel-logout';
     private string $clientKey = '';
     private string $clientScopeSeparator = ' ';
     private string $clientScopes = 'openid';
@@ -53,11 +57,13 @@ class Provider
     private bool $enableFrontendAuthentication = false;
     private bool $enablePasswordCredentials = false;
     private string $endpointAuthorize = '';
+    private string $endpointJwks = '';
     private string $endpointLogout = '';
     private string $endpointRevoke = '';
     private string $endpointToken = '';
     private string $endpointUserInfo = '';
     private bool $frontendUserMustExistLocally = false;
+    private string $issuer = '';
     /** @var MappingConfig */
     private array $mapping = [];
     private string $name;
@@ -166,6 +172,11 @@ class Provider
         return $this->authorizeLanguageParameter;
     }
 
+    public function getBackChannelLogoutPath(): string
+    {
+        return $this->backChannelLogoutPath;
+    }
+
     public function getClientKey(): string
     {
         return $this->clientKey;
@@ -191,6 +202,11 @@ class Provider
         return $this->endpointAuthorize;
     }
 
+    public function getEndpointJwks(): string
+    {
+        return $this->endpointJwks;
+    }
+
     public function getEndpointLogout(): string
     {
         return $this->endpointLogout;
@@ -209,6 +225,11 @@ class Provider
     public function getEndpointUserInfo(): string
     {
         return $this->endpointUserInfo;
+    }
+
+    public function getIssuer(): string
+    {
+        return $this->issuer;
     }
 
     /**
