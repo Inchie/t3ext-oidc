@@ -16,6 +16,39 @@ This document describes that feature of this fork of `causal/oidc`, with **Keycl
 identity provider. It covers frontend sessions only; backend sessions and frontend logins
 through other mechanisms are never touched.
 
+### Supported logout scope
+
+Back-Channel Logout operates exclusively on the Keycloak session identifier (`sid`). When
+Keycloak ends a session and sends a valid logout notification carrying its `sid`, the TYPO3
+frontend sessions associated with that `sid` are invalidated — for whatever reason Keycloak
+ended the session.
+
+Not supported:
+
+- User-wide logout based on the subject identifier (`sub`). A logout token without `sid` ends
+  no session, and `sub` is not stored.
+- Group-based or role-based logout.
+- Synchronisation of user groups, roles or access permissions.
+- Automatic session invalidation when group memberships or roles change.
+
+### No user or group mapping required
+
+Three things are easily confused; only the last one belongs to this feature:
+
+| | Origin | Configuration |
+|---|---|---|
+| User field mapping | Existing functionality of the upstream OIDC extension | `mapping` in `config/system/oidc.yaml`, see the [README](../README.md) |
+| User group mapping | Existing functionality of the upstream OIDC extension | See the [README](../README.md) |
+| Session association | Introduced by Back-Channel Logout | None |
+
+The session association links the Keycloak session identifier (`sid`) with the TYPO3 session
+identifier. The extension creates it automatically at every frontend login while the feature is
+enabled; there is nothing to map and nothing to configure for it.
+
+Back-Channel Logout neither reads nor changes the user field mapping or the user group mapping,
+and neither is a prerequisite for enabling it. The frontend login keeps whatever mapping it
+already uses.
+
 > **Not yet verified against a real Keycloak.** The feature is covered by automated tests that
 > run against a simulated identity provider. The Keycloak settings named here are the ones to
 > configure and check; every item of the [integration checklist](#7-integration-checklist) is
@@ -36,7 +69,8 @@ Two systems are configured, and the values on both sides must match:
 ### 2.1 Requirements
 
 - A working frontend login through Keycloak with this extension
-  (`enableFrontendAuthentication: 1`), as described in the [README](../README.md).
+  (`enableFrontendAuthentication: 1`), as described in the [README](../README.md). Its
+  existing configuration stays as it is; Back-Channel Logout adds no user or group mapping.
 - The PHP extensions `sodium` and `openssl`.
 - HTTPS in both directions with trusted certificates: TYPO3 must reach Keycloak, and Keycloak
   must reach the TYPO3 frontend.
