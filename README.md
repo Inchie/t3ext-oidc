@@ -69,7 +69,6 @@ authenticationUrlRoute: oidc/authentication
 providers:
   default:
     authorizeLanguageParameter: language
-    backChannelLogoutPath: /oidc/backchannel-logout
     clientKey: '%env(TYPO3_OIDC_CLIENT_KEY)%'
     clientScopeSeparator: '%env(TYPO3_OIDC_ENABLE_CODE_VERIFIER)%'
     clientScopes: '%env(TYPO3_OIDC_CLIENT_SCOPES)%'
@@ -80,13 +79,11 @@ providers:
     enableFrontendAuthentication: 0
     enablePasswordCredentials: 0
     endpointAuthorize: '%env(TYPO3_OIDC_ENDPOINT_AUTHORIZE)%'
-    endpointJwks: '%env(TYPO3_OIDC_ENDPOINT_JWKS)%'
     endpointLogout: '%env(TYPO3_OIDC_ENDPOINT_LOGOUT)%'
     endpointRevoke: '%env(TYPO3_OIDC_ENDPOINTREVOKE)%'
     endpointToken: '%env(TYPO3_OIDC_ENDPOINT_TOKEN)%'
     endpointUserInfo: '%env(TYPO3_OIDC_ENDPOINT_USERINFO)%'
     frontendUserMustExistLocally: 0
-    issuer: '%env(TYPO3_OIDC_ISSUER)%'
     mapping: []
     oauthProviderFactory:
     reEnableFrontendUsers: 0
@@ -157,11 +154,11 @@ will be sent along preventing _Authorization Code Interception Attacks_. See
 The extension implements the relying-party side of
 [OpenID Connect Back-Channel Logout 1.0](https://openid.net/specs/openid-connect-backchannel-1_0.html):
 when the identity provider reports that one of its sessions ended, the TYPO3 frontend
-sessions that were created from that session are removed immediately. The feature is switched
-on by configuring `issuer` and `endpointJwks` and is off otherwise.
+sessions that were created from that session are removed immediately. The feature is off
+unless it is configured.
 
-Architecture, configuration, runtime behaviour, known limitations and the integration
-checklist for Keycloak are described in
+Installation and configuration for TYPO3 and Keycloak, architecture, known limitations and the
+integration checklist are described in
 [Documentation/BackChannelLogout.md](Documentation/BackChannelLogout.md).
 
 ## Logging
