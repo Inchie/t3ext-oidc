@@ -5,9 +5,16 @@ declare(strict_types=1);
 namespace Causal\Oidc\Tests\Functional;
 
 use Causal\Oidc\BackChannelLogout\SessionAssociationRepository;
+use Causal\Oidc\Tests\Functional\Fixtures\TransientlyUnremovableSessionBackend;
+use Causal\Oidc\Tests\Functional\Fixtures\UnwritableSessionBackend;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Log\LogLevel;
 use TYPO3\CMS\Core\Http\JsonResponse;
+use TYPO3\CMS\Core\Log\Writer\FileWriter;
+use TYPO3\CMS\Core\Session\Backend\Exception\SessionNotCreatedException;
+use TYPO3\TestingFramework\Core\Functional\Framework\Frontend\InternalRequest;
 
 final class FrontendLoginTest extends AbstractFunctionalTestBase
 {
@@ -22,8 +29,10 @@ final class FrontendLoginTest extends AbstractFunctionalTestBase
             self::ENDPOINT_USERINFO => $this->userInfoResponse(),
         ]);
 
-        $this->executeFrontendSubRequest($this->loginRequest());
+        $response = $this->executeFrontendSubRequest($this->loginRequest());
 
+        self::assertStringContainsString('logged-in=1', (string)$response->getBody());
+        self::assertStringContainsString('groups=0,-2,1;', (string)$response->getBody());
         $rows = $this->getAllRecords('tx_oidc_backchannel_session');
         self::assertCount(1, $rows);
         self::assertSame('idp-session-1', $rows[0]['sid']);
@@ -164,9 +173,216 @@ final class FrontendLoginTest extends AbstractFunctionalTestBase
             self::ENDPOINT_USERINFO => $this->userInfoResponse(),
         ]);
 
-        $this->executeFrontendSubRequest($this->loginRequest());
+        $response = $this->executeFrontendSubRequest($this->loginRequest());
 
         $this->assertLoginWasDenied();
+        // The session the Core persisted for the login is gone, and the request itself went on without a user
+        self::assertSame([], $this->frontendSessionBackend()->getAll());
+        self::assertStringNotContainsString('logged-in=1', (string)$response->getBody());
+        self::assertStringContainsString('groups=0,-1;', (string)$response->getBody());
+        self::assertSame([], $this->sessionCookiesHandedOutBy($response));
+    }
+
+    /**
+     * With the Core configured to always fetch the user, a login of another user re-creates the
+     * session of the request under the identifier it had.
+     */
+    #[Test]
+    public function loginInAnExistingSessionEndsThatSessionWhenTheAssociationCannotBeStored(): void
+    {
+        $alwaysFetchUser = ['SVCONF' => ['auth' => ['setup' => ['FE_alwaysFetchUser' => true]]]];
+        $this->configureProvider(self::BACK_CHANNEL_LOGOUT);
+        self::$instanceConfiguration = $alwaysFetchUser;
+        $this->answerOutboundRequests([
+            self::ENDPOINT_TOKEN => $this->tokenResponse(['sid' => 'idp-session-1']),
+            self::ENDPOINT_USERINFO => $this->userInfoResponse(),
+        ]);
+        $response = $this->executeFrontendSubRequest($this->loginRequest());
+        $sessionCookies = $this->sessionCookiesHandedOutBy($response);
+        self::assertCount(1, $sessionCookies);
+
+        self::$instanceConfiguration = $alwaysFetchUser;
+        $this->answerOutboundRequests([
+            self::ENDPOINT_TOKEN => $this->tokenResponse(['sid' => str_repeat('s', 256), 'sub' => 'subject-2']),
+            self::ENDPOINT_USERINFO => $this->userInfoResponse('subject-2'),
+        ]);
+        $response = $this->executeFrontendSubRequest($this->loginRequest()->withCookieParams(['fe_typo_user' => $sessionCookies[0]]));
+
+        self::assertSame([], $this->authenticatedFrontendSessions());
+        self::assertStringNotContainsString('logged-in=1', (string)$response->getBody());
+        self::assertSame([], $this->sessionCookiesHandedOutBy($response));
+    }
+
+    /**
+     * The association cannot be stored, and the session backend then fails to remove the session
+     * the Core persisted for the login. A browser that held no session receives none.
+     */
+    #[Test]
+    public function loginOfABrowserWithoutSessionIsNotEffectiveWhenNeitherAssociationNorSessionRemovalSucceeds(): void
+    {
+        $logFile = $this->instancePath . '/typo3temp/var/log/frontend-login-test.log';
+        $this->configureProvider(self::BACK_CHANNEL_LOGOUT);
+        self::$instanceConfiguration = [
+            'SYS' => ['session' => ['FE' => ['backend' => TransientlyUnremovableSessionBackend::class]]],
+            'LOG' => ['writerConfiguration' => [LogLevel::DEBUG => [FileWriter::class => ['logFile' => $logFile]]]],
+        ];
+        // The Core removes once while it creates the session of the login
+        TransientlyUnremovableSessionBackend::$removalsBeforeTheStorageFails = 1;
+        $this->answerOutboundRequests([
+            self::ENDPOINT_TOKEN => $this->tokenResponse(['sid' => str_repeat('s', 256)]),
+            self::ENDPOINT_USERINFO => $this->userInfoResponse(),
+        ]);
+
+        $response = $this->executeFrontendSubRequest($this->loginRequest());
+
+        self::assertStringNotContainsString('logged-in=1', (string)$response->getBody());
+        self::assertSame([], $this->sessionCookiesHandedOutBy($response));
+        self::assertSame([], $this->getAllRecords('tx_oidc_backchannel_session'));
+        // The session stays in the backend, under an identifier no browser was given
+        $sessions = $this->authenticatedFrontendSessions();
+        self::assertCount(1, $sessions);
+        $logOutput = (string)file_get_contents($logFile);
+        self::assertStringContainsString('its session could not be removed', $logOutput);
+        self::assertStringNotContainsString('Session with id', $logOutput);
+    }
+
+    /**
+     * The same failure for a browser that already holds the cookie of the session: with the Core
+     * configured to always fetch the user, the login of another user re-creates the session of
+     * the request under the identifier it had. The request goes on without a user and the
+     * response removes the cookie, but the extension cannot guarantee that the session is gone
+     * from the backend: a later request with the kept cookie is logged in.
+     */
+    #[Test]
+    public function loginInAnExistingSessionKeepsItsBackendSessionWhenNeitherAssociationNorSessionRemovalSucceeds(): void
+    {
+        $logFile = $this->instancePath . '/typo3temp/var/log/frontend-login-test.log';
+        $instanceConfiguration = [
+            'SVCONF' => ['auth' => ['setup' => ['FE_alwaysFetchUser' => true]]],
+            'SYS' => ['session' => ['FE' => ['backend' => TransientlyUnremovableSessionBackend::class]]],
+            'LOG' => ['writerConfiguration' => [LogLevel::DEBUG => [FileWriter::class => ['logFile' => $logFile]]]],
+        ];
+        $this->configureProvider(self::BACK_CHANNEL_LOGOUT);
+        self::$instanceConfiguration = $instanceConfiguration;
+        TransientlyUnremovableSessionBackend::$removalsBeforeTheStorageFails = 1;
+        $this->answerOutboundRequests([
+            self::ENDPOINT_TOKEN => $this->tokenResponse(['sid' => 'idp-session-1']),
+            self::ENDPOINT_USERINFO => $this->userInfoResponse(),
+        ]);
+        $response = $this->executeFrontendSubRequest($this->loginRequest());
+        $sessionCookies = $this->sessionCookiesHandedOutBy($response);
+        self::assertCount(1, $sessionCookies);
+
+        self::$instanceConfiguration = $instanceConfiguration;
+        TransientlyUnremovableSessionBackend::$removalsBeforeTheStorageFails = 1;
+        $this->answerOutboundRequests([
+            self::ENDPOINT_TOKEN => $this->tokenResponse(['sid' => str_repeat('s', 256), 'sub' => 'subject-2']),
+            self::ENDPOINT_USERINFO => $this->userInfoResponse('subject-2'),
+        ]);
+        // Only the log output of the failing login is examined
+        file_put_contents($logFile, '');
+        $response = $this->executeFrontendSubRequest($this->loginRequest()->withCookieParams(['fe_typo_user' => $sessionCookies[0]]));
+
+        // The request is anonymous and the response removes the session cookie
+        self::assertStringNotContainsString('logged-in=1', (string)$response->getBody());
+        self::assertStringContainsString('groups=0,-1;', (string)$response->getBody());
+        self::assertSame([], $this->sessionCookiesHandedOutBy($response));
+        self::assertStringContainsString('fe_typo_user=deleted', $response->getHeaderLine('Set-Cookie'));
+        // The failure is logged, without the session identifier the backend names in its message
+        $logOutput = (string)file_get_contents($logFile);
+        self::assertStringContainsString('its session could not be removed', $logOutput);
+        self::assertStringNotContainsString('Session with id', $logOutput);
+        self::assertStringNotContainsString($sessionCookies[0], $logOutput);
+
+        // The accepted limitation (D21): the backend still holds the session under the identifier of the cookie,
+        // and only the association of the earlier login is left.
+        self::assertCount(1, $this->authenticatedFrontendSessions());
+        self::assertSame(['idp-session-1'], array_column($this->getAllRecords('tx_oidc_backchannel_session'), 'sid'));
+
+        // A browser that keeps sending the cookie although the response removed it stays logged in.
+        self::$instanceConfiguration = $instanceConfiguration;
+        $this->answerOutboundRequests([]);
+        $response = $this->executeFrontendSubRequest(
+            (new InternalRequest(self::SITE_URL))->withCookieParams(['fe_typo_user' => $sessionCookies[0]])
+        );
+        self::assertStringContainsString('logged-in=1', (string)$response->getBody());
+    }
+
+    /**
+     * An association exists only for a session the Core has persisted: where the Core fails to
+     * persist the session of a login, nothing is left that the cleanup or a logout could act on.
+     */
+    #[Test]
+    public function noAssociationIsStoredWhenTheCoreCannotPersistTheSessionOfTheLogin(): void
+    {
+        $this->configureProvider(self::BACK_CHANNEL_LOGOUT);
+        self::$instanceConfiguration = ['SYS' => ['session' => ['FE' => ['backend' => UnwritableSessionBackend::class]]]];
+        $this->answerOutboundRequests([
+            self::ENDPOINT_TOKEN => $this->tokenResponse(['sid' => 'idp-session-1']),
+            self::ENDPOINT_USERINFO => $this->userInfoResponse(),
+        ]);
+
+        $sessionWasNotCreated = false;
+        try {
+            $this->executeFrontendSubRequest($this->loginRequest());
+        } catch (SessionNotCreatedException) {
+            // The Core does not handle the failing session storage
+            $sessionWasNotCreated = true;
+        }
+
+        self::assertTrue($sessionWasNotCreated);
+        self::assertContains(self::ENDPOINT_TOKEN, $this->outboundRequestUrls);
+        self::assertSame([], $this->getAllRecords('tx_oidc_backchannel_session'));
+        self::assertSame([], $this->frontendSessionBackend()->getAll());
+    }
+
+    /**
+     * @return \Generator<string, array{string}>
+     */
+    public static function coreSettingsAskingForAUserWithoutLoginRequest(): \Generator
+    {
+        yield 'FE_fetchUserIfNoSession' => ['FE_fetchUserIfNoSession'];
+        yield 'FE_alwaysFetchUser' => ['FE_alwaysFetchUser'];
+    }
+
+    /**
+     * With these Core settings the Core asks for a user on a request that is no login request.
+     */
+    #[Test]
+    #[DataProvider('coreSettingsAskingForAUserWithoutLoginRequest')]
+    public function requestWithoutLoginTypeDoesNotAuthenticateWhenBackChannelLogoutIsConfigured(string $setting): void
+    {
+        $this->configureProvider(self::BACK_CHANNEL_LOGOUT);
+        self::$instanceConfiguration = ['SVCONF' => ['auth' => ['setup' => [$setting => true]]]];
+        $this->answerOutboundRequests([
+            self::ENDPOINT_TOKEN => $this->tokenResponse(),
+            self::ENDPOINT_USERINFO => $this->userInfoResponse(),
+        ]);
+
+        $response = $this->executeFrontendSubRequest(new InternalRequest(self::SITE_URL . '?tx_oidc[code]=authorization-code'));
+
+        $this->assertLoginWasDenied();
+        self::assertSame([], $this->outboundRequestUrls);
+        self::assertStringNotContainsString('logged-in=1', (string)$response->getBody());
+        self::assertSame([], $this->getAllRecords('fe_users'));
+    }
+
+    #[Test]
+    #[DataProvider('coreSettingsAskingForAUserWithoutLoginRequest')]
+    public function requestWithoutLoginTypeAuthenticatesAsBeforeWhenBackChannelLogoutIsNotConfigured(string $setting): void
+    {
+        $this->configureProvider();
+        self::$instanceConfiguration = ['SVCONF' => ['auth' => ['setup' => [$setting => true]]]];
+        $this->answerOutboundRequests([
+            self::ENDPOINT_TOKEN => $this->tokenResponse(),
+            self::ENDPOINT_USERINFO => $this->userInfoResponse(),
+        ]);
+
+        $response = $this->executeFrontendSubRequest(new InternalRequest(self::SITE_URL . '?tx_oidc[code]=authorization-code'));
+
+        self::assertCount(1, $this->authenticatedFrontendSessions());
+        self::assertStringContainsString('logged-in=1', (string)$response->getBody());
+        self::assertSame([], $this->getAllRecords('tx_oidc_backchannel_session'));
     }
 
     /**
@@ -196,6 +412,21 @@ final class FrontendLoginTest extends AbstractFunctionalTestBase
 
         self::assertCount(1, $this->authenticatedFrontendSessions());
         self::assertSame([], $this->getAllRecords('tx_oidc_backchannel_session'));
+    }
+
+    /**
+     * @return list<string> The values of the frontend session cookies the response sets, without the ones it deletes
+     */
+    private function sessionCookiesHandedOutBy(ResponseInterface $response): array
+    {
+        $values = [];
+        foreach ($response->getHeader('Set-Cookie') as $cookie) {
+            $nameAndValue = explode('=', explode(';', $cookie)[0], 2);
+            if ($nameAndValue[0] === 'fe_typo_user' && $nameAndValue[1] !== 'deleted') {
+                $values[] = $nameAndValue[1];
+            }
+        }
+        return $values;
     }
 
     private function assertLoginWasDenied(): void

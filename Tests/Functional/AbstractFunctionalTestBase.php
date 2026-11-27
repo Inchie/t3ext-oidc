@@ -70,7 +70,12 @@ abstract class AbstractFunctionalTestBase extends FunctionalTestCase
         $connectionPool = $this->getConnectionPool();
         $connectionPool->getConnectionForTable('pages')->insert('pages', ['uid' => 1, 'pid' => 0, 'title' => 'Root', 'slug' => '/']);
         $connectionPool->getConnectionForTable('fe_groups')->insert('fe_groups', ['uid' => 1, 'pid' => 0, 'title' => 'Users']);
-        $this->setUpFrontendRootPage(1, [], ['config' => "page = PAGE\npage.10 = TEXT\npage.10.value = Root"]);
+        $this->setUpFrontendRootPage(1, [], [
+            'config' => "page = PAGE\npage.10 = TEXT\npage.10.value = Root\n"
+                // Tells in the response body whether the request ran with a logged-in frontend user, and with which groups
+                . "page.20 = TEXT\npage.20.data = context:frontend.user:isLoggedIn\npage.20.noTrimWrap = | logged-in=||\n"
+                . "page.30 = TEXT\npage.30.data = context:frontend.user:groupIds\npage.30.noTrimWrap = | groups=|;|",
+        ]);
         GeneralUtility::mkdir_deep($this->instancePath . '/typo3conf/sites/website');
         file_put_contents(
             $this->instancePath . '/typo3conf/sites/website/config.yaml',

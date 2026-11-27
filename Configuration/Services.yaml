@@ -29,6 +29,12 @@ services:
   Causal\Oidc\BackChannelLogout\SessionAssociationRepository:
     public: true
 
+  Causal\Oidc\BackChannelLogout\LoginSessionAssociator:
+    tags:
+      - name: event.listener
+        identifier: 'causal/oidc-associate-session-of-login'
+        event: TYPO3\CMS\Core\Authentication\Event\AfterUserLoggedInEvent
+
   Causal\Oidc\EventListener\ProcessRequestTokenListener:
     tags:
       - name: event.listener

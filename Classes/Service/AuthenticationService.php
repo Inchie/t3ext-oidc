@@ -20,6 +20,7 @@ namespace Causal\Oidc\Service;
 use Causal\Oidc\BackChannelLogout\EndpointTransportRule;
 use Causal\Oidc\BackChannelLogout\IdTokenClaims;
 use Causal\Oidc\BackChannelLogout\IdTokenValidator;
+use Causal\Oidc\BackChannelLogout\LoginSessionAssociator;
 use Causal\Oidc\BackChannelLogout\SessionAssociationRepository;
 use Causal\Oidc\Event\AuthenticationFetchUserEvent;
 use Causal\Oidc\Event\AuthenticationGetUserEvent;
@@ -78,11 +79,6 @@ class AuthenticationService extends \TYPO3\CMS\Core\Authentication\Authenticatio
      */
     private const STATUS_AUTHENTICATION_FAILURE_BREAK = 0;
 
-    /**
-     * Key of the user candidate carrying the validated identity-provider session identifier
-     */
-    private const USER_KEY_SID = 'backChannelLogoutSid';
-
     public function __construct(
         protected readonly EventDispatcherInterface $eventDispatcher,
         protected OidcConfiguration $config,
@@ -117,6 +113,12 @@ class AuthenticationService extends \TYPO3\CMS\Core\Authentication\Authenticatio
 
     protected function getUserFE(ServerRequestInterface $request, ?string $code): array|false
     {
+        if ($this->isSessionAssociationRequired() && !$this->pObj->isActiveLogin($request)) {
+            // The session association is stored when the Core announces the login, which it does for a login request only.
+            $this->logger->debug('No OpenID Connect authentication: with Back-Channel Logout configured it takes a login request');
+            return false;
+        }
+
         $user = false;
         if ($code !== null) {
             $codeVerifier = null;
@@ -307,7 +309,8 @@ class AuthenticationService extends \TYPO3\CMS\Core\Authentication\Authenticatio
 
         $user = $this->convertResourceOwner($resourceOwnerObject, $accessToken);
         if (is_array($user) && $idTokenClaims !== null) {
-            $user[self::USER_KEY_SID] = $idTokenClaims->sid;
+            $user[LoginSessionAssociator::USER_KEY_SID] = $idTokenClaims->sid;
+            $user[LoginSessionAssociator::USER_KEY_SESSION_HAD_USER] = $this->sessionHasUser();
         }
 
         if ($this->config->revokeAccessTokenAfterLogin) {
@@ -342,7 +345,7 @@ class AuthenticationService extends \TYPO3\CMS\Core\Authentication\Authenticatio
             return self::STATUS_AUTHENTICATION_FAILURE_CONTINUE;
         }
 
-        if ($this->isSessionAssociationRequired() && !$this->storeSessionAssociation($user)) {
+        if ($this->isSessionAssociationRequired() && !$this->associateSessionTheCoreKeeps($user)) {
             return self::STATUS_AUTHENTICATION_FAILURE_BREAK;
         }
 
@@ -379,29 +382,43 @@ class AuthenticationService extends \TYPO3\CMS\Core\Authentication\Authenticatio
     }
 
     /**
-     * Associates the identity-provider session with the session the Core is about to fixate for this login.
+     * Stores the association where the Core keeps the persisted session of the same user as it
+     * is. For the session the Core creates after this step, LoginSessionAssociator stores it
+     * when the Core announces the login.
+     *
+     * @return bool False when the login has to be denied
      */
-    private function storeSessionAssociation(array $user): bool
+    private function associateSessionTheCoreKeeps(array $user): bool
     {
-        $sid = $user[self::USER_KEY_SID] ?? null;
+        $sid = $user[LoginSessionAssociator::USER_KEY_SID] ?? null;
         if (!is_string($sid)) {
             $this->logger->error('Login denied: the user candidate carries no validated sid');
             return false;
         }
         $session = $this->pObj->getSession();
-        $associations = GeneralUtility::makeInstance(SessionAssociationRepository::class);
+        $coreKeepsTheSession = $this->sessionHasUser()
+            && $session->getUserId() === (int)($user[$this->pObj->userid_column] ?? 0);
+        if (!$coreKeepsTheSession) {
+            return true;
+        }
+
         try {
-            if ($session->getUserId() === null) {
-                $associations->store($sid, $session->getIdentifier());
-            } else {
-                // The Core authenticates again in a session that already has a user and keeps its identifier.
-                $associations->storeAsOnlyAssociationOfSession($sid, $session->getIdentifier());
-            }
+            GeneralUtility::makeInstance(SessionAssociationRepository::class)
+                ->storeAsOnlyAssociationOfSession($sid, $session->getIdentifier());
         } catch (SessionAssociationNotStoredException $e) {
             $this->logger->error('Login denied: ' . $e->getMessage());
             return false;
         }
         return true;
+    }
+
+    /**
+     * Whether the session of the request is a persisted session of a user, the way the Core tells it.
+     */
+    private function sessionHasUser(): bool
+    {
+        $session = $this->pObj->getSession();
+        return !$session->isNew() && !$session->isAnonymous();
     }
 
     /**
