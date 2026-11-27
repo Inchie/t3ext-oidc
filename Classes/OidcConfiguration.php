@@ -103,6 +103,7 @@ final class OidcConfiguration
 
             // We only support one provider for now
             $provider = current($this->providers);
+            assert($provider instanceof Provider);
             $this->enableBackendAuthentication = $provider->isEnableBackendAuthentication();
             $this->enableFrontendAuthentication = $provider->isEnableFrontendAuthentication();
             $this->reEnableFrontendUsers = $provider->isReEnableFrontendUsers();

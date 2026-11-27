@@ -194,7 +194,9 @@ abstract class AbstractFunctionalTestBase extends FunctionalTestCase
     {
         $keys = [];
         foreach ($keyIds ?: [self::SIGNING_KEY_ID] as $keyId) {
-            $rsa = openssl_pkey_get_details(self::signingKey($keyId))['rsa'];
+            $keyDetails = openssl_pkey_get_details(self::signingKey($keyId));
+            self::assertIsArray($keyDetails);
+            $rsa = $keyDetails['rsa'];
             $keys[] = [
                 'kty' => 'RSA',
                 'use' => 'sig',

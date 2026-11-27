@@ -32,7 +32,7 @@ final class BackChannelLogoutCleanupCommandTest extends AbstractFunctionalTestBa
     {
         self::assertArrayHasKey(
             'oidc:backchannel:cleanup',
-            $this->get(CommandRegistry::class)->getSchedulableCommandsConfiguration()
+            iterator_to_array($this->get(CommandRegistry::class)->getSchedulableCommands())
         );
     }
 

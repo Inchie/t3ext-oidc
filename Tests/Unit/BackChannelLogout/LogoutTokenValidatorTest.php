@@ -146,7 +146,9 @@ final class LogoutTokenValidatorTest extends TestCase
     #[Test]
     public function tokenSignedSymmetricallyWithThePublishedPublicKeyIsRejected(): void
     {
-        $publicKey = openssl_pkey_get_details(self::$publishedKey)['key'];
+        $keyDetails = openssl_pkey_get_details(self::$publishedKey);
+        self::assertIsArray($keyDetails);
+        $publicKey = $keyDetails['key'];
         $token = JWT::encode($this->claims(), $publicKey, 'HS256', self::PUBLISHED_KEY_ID);
 
         $this->expectException(LogoutTokenRejectedException::class);
@@ -254,7 +256,9 @@ final class LogoutTokenValidatorTest extends TestCase
      */
     private function publishedKeySet(): array
     {
-        $rsa = openssl_pkey_get_details(self::$publishedKey)['rsa'];
+        $keyDetails = openssl_pkey_get_details(self::$publishedKey);
+        self::assertIsArray($keyDetails);
+        $rsa = $keyDetails['rsa'];
 
         return ['keys' => [[
             'kty' => 'RSA',
