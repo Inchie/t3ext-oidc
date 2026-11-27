@@ -11,6 +11,9 @@
   Hence, the route can be an actual TYPO3 page with content as well.
 - Newly created users now have `tstamp` set
 - Better handling for communication errors with IdP
+- Added OpenID Connect Back-Channel Logout: with `issuer` and `endpointJwks` configured, the identity provider
+  can end TYPO3 frontend sessions through a logout endpoint; command `oidc:backchannel:cleanup` removes
+  obsolete session associations. See "Back-Channel Logout" in README.
 
 ## Version 6.0.0 (2026-09-10)
 
