@@ -13,6 +13,15 @@ return [
                 'typo3/cms-frontend/eid',
             ],
         ],
+        'oidcbackchannellogout' => [
+            'target' => \Causal\Oidc\Middleware\BackChannelLogoutEndpoint::class,
+            'after' => [
+                'typo3/cms-core/normalized-params-attribute',
+            ],
+            'before' => [
+                'typo3/cms-frontend/eid',
+            ],
+        ],
         'oidcauthurl' => [
             'target' => \Causal\Oidc\Middleware\AuthenticationUrlRequest::class,
             'after' => [

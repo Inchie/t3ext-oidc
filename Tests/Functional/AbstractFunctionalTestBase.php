@@ -38,7 +38,8 @@ abstract class AbstractFunctionalTestBase extends FunctionalTestCase
      */
     public static array $instanceConfiguration = [];
 
-    private static ?\OpenSSLAsymmetricKey $signingKey = null;
+    /** @var array<string, \OpenSSLAsymmetricKey> RSA key material by key ID, existing only for this test run */
+    private static array $signingKeys = [];
 
     // Both are requirements of the extension; the instance does not boot without them.
     protected array $coreExtensionsToLoad = ['install', 'lowlevel'];
@@ -57,6 +58,9 @@ abstract class AbstractFunctionalTestBase extends FunctionalTestCase
 
     /** @var list<string> */
     protected array $outboundRequestUrls = [];
+
+    /** @var array<string, array<string, mixed>> The options of the latest outbound request by URL */
+    protected array $outboundRequestOptions = [];
 
     protected function setUp(): void
     {
@@ -119,16 +123,20 @@ abstract class AbstractFunctionalTestBase extends FunctionalTestCase
      * Answers the outbound HTTP requests of the instance through TYPO3's HTTP.handler
      * mechanism. A request to a URL without an answer fails, so no request leaves the process.
      *
-     * @param array<string, ResponseInterface> $answersByUrl
+     * @param array<string, ResponseInterface|\Throwable> $answersByUrl A throwable is the transport failure of that request
      */
     protected function answerOutboundRequests(array $answersByUrl): void
     {
         self::$instanceConfiguration['HTTP']['handler']['oidc-functional-test']
-            = fn(): \Closure => function (RequestInterface $request) use ($answersByUrl): PromiseInterface {
+            = fn(): \Closure => function (RequestInterface $request, array $options) use ($answersByUrl): PromiseInterface {
                 $url = (string)$request->getUri();
                 $this->outboundRequestUrls[] = $url;
+                $this->outboundRequestOptions[$url] = $options;
                 if (!isset($answersByUrl[$url])) {
                     throw new \RuntimeException('Unexpected outbound request to ' . $url . ' (f41c1271-9953-4d50-b124-3d08ba464a94)');
+                }
+                if ($answersByUrl[$url] instanceof \Throwable) {
+                    return Create::rejectionFor($answersByUrl[$url]);
                 }
                 return Create::promiseFor($answersByUrl[$url]);
             };
@@ -166,11 +174,41 @@ abstract class AbstractFunctionalTestBase extends FunctionalTestCase
      * Signs a token with RSA key material that exists only for this test run.
      *
      * @param array<string, mixed> $claims
+     * @param string $keyId The key ID the token names
+     * @param string|null $signingKeyId The key that signs the token, where it is not the one the token names
      */
-    protected function signToken(array $claims): string
+    protected function signToken(array $claims, string $keyId = self::SIGNING_KEY_ID, ?string $signingKeyId = null): string
     {
-        self::$signingKey ??= openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
-        return JWT::encode($claims, self::$signingKey, 'RS256', self::SIGNING_KEY_ID);
+        return JWT::encode($claims, self::signingKey($signingKeyId ?? $keyId), 'RS256', $keyId);
+    }
+
+    /**
+     * The JWK Set document publishing the public keys of the given key IDs.
+     */
+    protected function jwkSetResponse(string ...$keyIds): ResponseInterface
+    {
+        $keys = [];
+        foreach ($keyIds ?: [self::SIGNING_KEY_ID] as $keyId) {
+            $rsa = openssl_pkey_get_details(self::signingKey($keyId))['rsa'];
+            $keys[] = [
+                'kty' => 'RSA',
+                'use' => 'sig',
+                'kid' => $keyId,
+                'n' => JWT::urlsafeB64Encode($rsa['n']),
+                'e' => JWT::urlsafeB64Encode($rsa['e']),
+            ];
+        }
+        return new JsonResponse(['keys' => $keys]);
+    }
+
+    private static function signingKey(string $keyId): \OpenSSLAsymmetricKey
+    {
+        if (!isset(self::$signingKeys[$keyId])) {
+            $key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+            self::assertInstanceOf(\OpenSSLAsymmetricKey::class, $key);
+            self::$signingKeys[$keyId] = $key;
+        }
+        return self::$signingKeys[$keyId];
     }
 
     protected function loginRequest(): InternalRequest
